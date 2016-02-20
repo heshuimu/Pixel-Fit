@@ -119,7 +119,6 @@ public static class MSHealthInterface
 				ci.coroutine = WaitForAccessToken(webView, AccessCode, false);
 				ci.InvokeCoroutine();
 			}
-			//https://login.live.com/oauth20_desktop.srf?code=Mabacbea7-2dfc-2c37-8961-7b7b91708930&lc=2052
 		 }
 		 else
 		 {
