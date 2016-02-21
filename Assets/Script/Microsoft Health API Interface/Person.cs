@@ -2,12 +2,42 @@
 using System.Collections.Generic;
 using MiniJSON;
 using System.IO;
+using System.Xml;
 
-namespace testMiniJson
+namespace userInfo
 {
     class PixelFit
     {
-        public static List<int> parse(Dictionary<string, object> dict, string key)
+        public static List<double> parseSleepTime(Dictionary<string, object> dict)
+        {
+            List<double> result = new List<double>();
+            Object value1;
+            if (!dict.TryGetValue("sleepActivities", out value1))
+            {
+                result.Add(0);
+                return result;
+            }
+            var list = (List<Object>)value1;
+            foreach (var item in list)
+            {
+                var activity = (Dictionary<string, object>)item;
+                Object value2;
+
+                double sleepDuration;
+                if (!activity.TryGetValue("sleepDuration", out value2))
+                {
+                    sleepDuration = 0;
+                }
+                else
+                {
+                    TimeSpan ts = XmlConvert.ToTimeSpan((string)value2);
+                    sleepDuration = ts.TotalHours;
+                }
+                result.Add(sleepDuration);
+            }
+            return result;
+        }
+        public static List<int> parseTotalCalories(Dictionary<string, object> dict, string key)
         {
             List<int> result = new List<int>();
             Object value1;
@@ -40,21 +70,16 @@ namespace testMiniJson
             }
             return result;
         }
-        public static Activities LoadJson()
+        public static Activities LoadJson(Dictionary<string, object> dict)
         {
             Activities userActivities;
-            using (StreamReader r = new StreamReader("test.json"))
-            {
-                string json = r.ReadToEnd();
-                var dict = Json.Deserialize(json) as Dictionary<string, object>;
-                List<int> list_bike = parse(dict, "bikeActivities");
-                List<int> list_free = parse(dict, "freePlayActivities");
-                List<int> list_golf = parse(dict, "golfActivities");
-                List<int> list_workout = parse(dict, "guidedWorkoutActivities");
-                List<int> list_run = parse(dict, "runActivities");
-                List<int> list_sleep = parse(dict, "sleepActivities");
-                userActivities = new Activities(list_bike, list_free, list_golf, list_workout, list_run, list_sleep);
-            }
+            List<int> list_bike = parseTotalCalories(dict, "bikeActivities");
+            List<int> list_free = parseTotalCalories(dict, "freePlayActivities");
+            List<int> list_golf = parseTotalCalories(dict, "golfActivities");
+            List<int> list_workout = parseTotalCalories(dict, "guidedWorkoutActivities");
+            List<int> list_run = parseTotalCalories(dict, "runActivities");
+            List<double> list_sleep = parseSleepTime(dict);
+            userActivities = new Activities(list_bike, list_free, list_golf, list_workout, list_run, list_sleep);
             return userActivities;
         }
         public struct Activities
@@ -64,8 +89,8 @@ namespace testMiniJson
             public List<int> golfActivities;
             public List<int> guidedWorkoutActivities;
             public List<int> runActivities;
-            public List<int> sleepActivities;
-            public Activities(List<int> bike, List<int> freePlay, List<int> golf, List<int> guidedWorkout, List<int> run, List<int> sleep)
+            public List<double> sleepActivities;
+            public Activities(List<int> bike, List<int> freePlay, List<int> golf, List<int> guidedWorkout, List<int> run, List<double> sleep)
             {
                 bikeActivities = bike;
                 freePlayActivities = freePlay;
@@ -75,15 +100,6 @@ namespace testMiniJson
                 sleepActivities = sleep;
             }
         }
-        public static int average(List<int> list)
-        {
-            int sum = 0;
-            foreach (int item in list)
-            {
-                sum += item;
-            }
-            return sum / list.Count;
-        }
 
         public struct Person
         {
@@ -92,12 +108,39 @@ namespace testMiniJson
             public int age;
             public double weight;
             public double height;
-            public char gender;
+            public string gender;
             public double calorieneed;
-            public int actfrequency;
+            public double actfrequency;
             public Activities userActivities;
 
-            public Person(string name = "", double caloriecost = 0, int age = 0, double weight = 0, double height = 0, char gender = 'M', double calorieneed = 0, int actfrequency = 0)
+            public static int GetAge(DateTime reference, DateTime birthday)
+            {
+                int age = reference.Year - birthday.Year;
+                if (reference < birthday.AddYears(age)) age--;
+                return age;
+            }
+
+            public void parseProfile(Dictionary<string, object> dict)
+            {
+                object value;
+                this.name = (string) dict["firstName"] + " " + (string) dict["lastName"];
+                DateTime now = DateTime.Today;
+                if (!dict.TryGetValue("birthdate", out value))
+                    age = 0;
+                else
+                    age = GetAge(now, DateTime.Parse(value.ToString()));
+                if (!dict.TryGetValue("weight", out value))
+                    weight = 0;
+                else
+                    weight = double.Parse(value.ToString()) / 1000;
+                if (!dict.TryGetValue("height", out value))
+                    height = 0;
+                else
+                    height = double.Parse(value.ToString()) / 10;
+                this.gender = (string) dict["gender"];
+            }
+
+            public Person(string name = "", double caloriecost = 0, int age = 0, double weight = 0, double height = 0, string gender = "Male", double calorieneed = 0, double actfrequency = 0)
             {
                 this.name = name;
                 this.caloriecost = caloriecost;
@@ -109,48 +152,84 @@ namespace testMiniJson
                 this.actfrequency = actfrequency;
                 this.userActivities = new Activities(null, null, null, null, null, null);
             }
+		
+		public double BMI()
+		{
+			return  this.weight / ((this.height/100) * (this.height/100));
+		}
 
             public double BMR()
             {
+			//Women BMR = 655 + (9.6 x weight in kilos) + (1.8 x height in cm) - (4.7 x age in years)
+
+			//Men BMR = 66 + (13.7 x weight in kilos) + (5 x height in cm) - (6.8 x age in years)
                 double bmr = 0;
-                if (this.gender == 'm' || this.gender == 'M')
+                if (this.gender == "Male")
                 {
-                    bmr = 10 * this.weight + 6.25 * this.height - 5 * this.age + 5;
+                    bmr = 66+ this.weight * 13.7 + 5 * this.height - 6.8 * this.age;
 
                 }
-                else if (this.gender == 'f' || this.gender == 'F')
+                else if (this.gender == "Female")
                 {
-                    bmr = 10 * this.weight + 6.25 * this.height - 5 * this.age - 161;
+                    bmr = 655 + 9.6*this.weight + 1.8 * this.height - 4.7*this.age;
 
                 }
                 return bmr;
             }
-            public void setCalorieNeed(double bmr, int frequency)
+            public void setCalorieNeed(double bmr, double frequency)
             {
-                if (frequency == 0)
+                if (frequency >= 0 || frequency < 1)
                 {
                     this.calorieneed = bmr * 1.2;
                 }
-                else if (frequency == 2)
+                else if (frequency >= 1 || frequency < 3)
                 {
                     this.calorieneed = bmr * 1.375;
                 }
-                else if (frequency == 4)
+                else if (frequency >= 3 || frequency < 5)
                 {
                     this.calorieneed = bmr * 1.55;
                 }
-                else if (frequency == 6)
+                else if (frequency >= 5 || frequency < 7)
                 {
                     this.calorieneed = bmr * 1.725;
                 }
             }
 
             //return true if need > cost, false otherwise. 
-            public bool compareCalorie()
+            public void setCalorie(Dictionary<string, object> dict)
             {
-                return caloriecost / calorieneed > 0.2;
+                setCalorieCost(dict);
+                setCalorieNeed(this.BMR(), this.actfrequency);
+            }
+            public double calorieRatio()
+            {
+                return caloriecost / calorieneed;
             }
 
+            public double sleepRatio()
+            {
+                return average(userActivities.sleepActivities) / 7;
+            }
+
+            public double runRatio(int start, int end)
+            {
+                return userActivities.runActivities.Count * 1.0 / (end - start + 1);
+            }
+            public void setFrequency(int start, int end)
+            {
+                int sum = userActivities.runActivities.Count + userActivities.freePlayActivities.Count + userActivities.bikeActivities.Count + userActivities.golfActivities.Count + userActivities.guidedWorkoutActivities.Count;
+                this.actfrequency = sum * 7.0 / (end - start + 1);
+            }
+            public static double average(List<double> list)
+            {
+                double sum = 0;
+                foreach (double item in list)
+                {
+                    sum += item;
+                }
+                return sum*1.0 / list.Count;
+            }
             public static double average(List<int> list)
             {
                 int sum = 0;
@@ -158,14 +237,15 @@ namespace testMiniJson
                 {
                     sum += item;
                 }
-                return sum*1.0 / list.Count;
+                return sum * 1.0 / list.Count;
             }
 
-            public void setCalorieCost()
+            public void setCalorieCost(Dictionary<string, object> dict)
             {
-                userActivities = LoadJson();
-                caloriecost = average(userActivities.bikeActivities) + average(userActivities.freePlayActivities) + average(userActivities.golfActivities) + average(userActivities.guidedWorkoutActivities) + average(userActivities.runActivities) + average(userActivities.sleepActivities);
+                userActivities = LoadJson(dict);
+                caloriecost = average(userActivities.bikeActivities) + average(userActivities.freePlayActivities) + average(userActivities.golfActivities) + average(userActivities.guidedWorkoutActivities) + average(userActivities.runActivities);
             }
+            
         }
     }
 }

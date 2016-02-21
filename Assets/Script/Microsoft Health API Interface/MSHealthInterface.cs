@@ -2,6 +2,7 @@
 using System.Collections;
 using System.Collections.Generic;
 using System.Net;
+using System.IO;
 using UnityEngine;
 using MiniJSON;
 
@@ -10,8 +11,8 @@ public static class MSHealthInterface
 	private const string ClientId = "0000000040186653";
 	private const string ClientSecret = "4PUCOWzczvm4GhpECz3sVgf-7DLBo4bi";
 	private const string Scopes = "mshealth.ReadProfile mshealth.ReadDevices mshealth.ReadActivityHistory mshealth.ReadActivityLocation mshealth.ReadDevices";
-	private const string BaseHealthUri = "https://api.microsofthealth.net/v1/me/";
-	private const string RedirectUri = "https://login.live.com/oauth20_desktop.srf";
+	public const string BaseHealthUri = "https://api.microsofthealth.net/v1/me/";
+	public const string RedirectUri = "https://login.live.com/oauth20_desktop.srf";
 	
 	public static string AccessToken
 	{
@@ -207,13 +208,53 @@ public static class MSHealthInterface
 		}
 	 }
 	 
-	 public static void PerformRequest(IMSHealthJSONResponder responder, string relativePath, string queryParams = null)
+	 public static void PerformRequest(IMSHealthJSONResponder responder, string baseURI, string relativePath, string queryParams = null)
 	 {
+		#if UNITY_IOS
+		
+		PerformRequestSync(responder, baseURI, relativePath, queryParams);
+		
+		#else
+		
 		GameObject go =  new GameObject();
 		CoroutineInvoker ci = go.AddComponent<CoroutineInvoker>();
 		ci.coroutine = PerformRequestSequence(responder, relativePath, queryParams);
 		ci.InvokeCoroutine();
+		
+		#endif
 	 }
+	 
+	 #if UNITY_IOS
+	 
+	private static void PerformRequestSync(IMSHealthJSONResponder responder, string baseURI, string relativePath, string queryParams = null)
+      {
+		var uriBuilder = new UriBuilder(baseURI);
+		uriBuilder.Path += relativePath;
+		uriBuilder.Query = queryParams;
+		
+		HttpWebRequest request = (HttpWebRequest)WebRequest.Create (uriBuilder.Uri);
+		request.Headers[HttpRequestHeader.Authorization] = string.Format("bearer {0}", AccessToken);
+		
+		HttpWebResponse response = (HttpWebResponse)request.GetResponse();
+		
+		Stream receiveStream = response.GetResponseStream ();
+		StreamReader reader =  new StreamReader(receiveStream);
+		
+		Debug.Log("DONE");
+		
+		Dictionary<string, object> JSONData = (Dictionary<string, object>) Json.Deserialize(reader.ReadToEnd());
+		
+		if(responder.RespondToJSONData(JSONData))
+		{
+			Debug.Log("Target consumed JSON Data successfully");
+		}
+		else
+		{
+			Debug.Log("Target failed to consume the JSON Data");
+		}
+	 }
+	 
+	 #else
 	 
 	 private static IEnumerator PerformRequestSequence(IMSHealthJSONResponder responder, string relativePath, string queryParams = null)
        {
@@ -228,9 +269,19 @@ public static class MSHealthInterface
 		WWWHeaderDictionary.Add("Authorization", string.Format("bearer {0}", AccessToken));
 		WWW infoReq = new WWW(uriBuilder.Uri.AbsoluteUri, null, WWWHeaderDictionary);
 		
-		yield return infoReq;
+		float timer = 0;
 		
-		Debug.Log(infoReq.text);
+		while(timer < 5 && !infoReq.isDone)
+		{
+			yield return null;
+			timer += Time.deltaTime;
+		}
+		if(timer > 5)
+		{
+			Debug.Log("Timeout");
+		}
+		
+		Debug.Log("DONE");
 		
 		Dictionary<string, object> JSONData = (Dictionary<string, object>) Json.Deserialize(infoReq.text);
 		
@@ -242,7 +293,9 @@ public static class MSHealthInterface
 		{
 			Debug.Log("Target failed to consume the JSON Data");
 		}
-	}	  
+	 }
+	 
+	 #endif 
 }
 
 public interface IMSHealthJSONResponder
